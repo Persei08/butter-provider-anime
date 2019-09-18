@@ -7,13 +7,16 @@ var Q = require('q');
 var querystring = require('querystring');
 var request = require('request');
 var sanitize = require('butter-sanitize');
+var deferred = Q.defer();
 
 var AnimeApi = function (args) {
-  if (!(this instanceof AnimeApi)) return new AnimeApi(args);
+  var that = this;
 
-  Generic.call(this, args);
+  AnimeApi.super_.call(this);
 
-  this.apiURL = this.args.apiURL || ['https://anime.api-fetch.website/'];
+  if (args.apiURL) {
+    this.apiURL = args.apiURL.split(',');
+  }
 };
 
 inherits(AnimeApi, Generic);
@@ -22,71 +25,72 @@ AnimeApi.prototype.config = {
   name: 'AnimeApi',
   uniqueId: 'mal_id',
   tabName: 'AnimeApi',
-  args: {
-    apiURL: Generic.ArgType.ARRAY
-	},
+  type: 'anime',
   metadata: 'trakttv:anime-metadata'
 };
 
 function formatFetch(animes) {
   var results = _.map(animes, function (anime) {
-    var result = {
+    return {
+//      images: anime.images,
+      images: { 
+        poster: 'https://media.kitsu.io/anime/poster_images/' + anime._id + '/large.jpg',
+        fanart: 'https://media.kitsu.io/anime/cover_images/' + anime._id + '/original.jpg',
+      },
       mal_id: anime._id,
+      haru_id: anime._id,
+      tvdb_id: 'mal-' + anime._id,
+      imdb_id: anime._id,
+      slug: anime.slug,
       title: anime.title,
       year: anime.year,
-      genres: anime.genres,
-      rating: parseInt(anime.rating.percentage, 10) / 10,
-      poster: anime.images.poster,
-      type: anime.type
+      type: anime.type,
+      item_data: anime.type,
+      rating: anime.rating
     };
-
-    if (result.type === Generic.ItemType.TVSHOW) {
-      result = _.extend(result, {
-        num_seasons: anime.num_seasons
-      });
-    } else if (result.type === Generic.ItemType.MOVIE) {
-      // Do nothing
-    } else {
-      throw Error('unsupported type: \'' + anime.type + '\'!');
-    }
-
-    return result;
   });
 
-  return {
-    results: sanitize(results),
-    hasMore: true
-  };
+  return {results: sanitize(results), hasMore: true};
 };
 
 function formatDetail(anime) {
   var result = {
     mal_id: anime._id,
+    haru_id: anime._id,
+    tvdb_id: 'mal-' + anime._id,
+    imdb_id: anime._id,
+    slug: anime.slug,
     title: anime.title,
-    year: anime.year,
+    item_data: anime.type,
+    country: 'Japan',
+    genre: anime.genres,
     genres: anime.genres,
-    rating: anime.rating,
-    poster: anime.images.poster,
-    type: anime.type,
+    num_seasons: 1,
     runtime: anime.runtime,
+    status: anime.status,
+    synopsis: anime.synopsis,
+    network: [], //FIXME
+    rating: anime.rating,
+//    images: anime.images,
+    images: { 
+      poster: 'https://media.kitsu.io/anime/poster_images/' + anime._id + '/large.jpg',
+      fanart: 'https://media.kitsu.io/anime/cover_images/' + anime._id + '/original.jpg',
+    },
     backdrop: anime.images.fanart,
-    subtitle: {},
-    synopsis: anime.synopsis
+    poster: anime.images.poster,
+    year: anime.year,
+    type: anime.type
   };
 
-  if (anime.type === Generic.ItemType.TVSHOW) {
-    result = _.extend(result, {
-      episodes: anime.episodes,
-      status: anime.status,
-      num_seasons: anime.num_seasons
-    });
-  } else if (anime.type === Generic.ItemType.MOVIE) {
-    result = _.extend(ret, {
-      torrents: anime.torrents,
-      trailer: anime.trailer
-    });
+  if (anime.type === 'show') {
+    result = _.extend(result, {episodes: anime.episodes});
   } else {
-    throw Error('unsupported type: \'' + anime.type + '\'!');
+    // ret = _.extend(ret, {
+    //   cover: img,
+    //   rating: item.score,
+    //   subtitle: undefined,
+    //   torrents: movieTorrents(item.id, item.episodes)
+    // });
   }
 
   return sanitize(result);
@@ -108,7 +112,9 @@ function processCloudFlareHack(options, url) {
 };
 
 function get(index, url, that) {
-  var deferred = Q.defer();
+  if (index == 0) {
+    deferred = Q.defer();
+  }
 
   var options = {
     url: url,
@@ -138,7 +144,7 @@ function get(index, url, that) {
 };
 
 AnimeApi.prototype.extractIds = function (items) {
-  return _.map(items.results, this.config.uniqueId);
+  return _.map(items.results, 'mal_id');
 };
 
 AnimeApi.prototype.fetch = function (filters) {
@@ -164,8 +170,6 @@ AnimeApi.prototype.fetch = function (filters) {
     params.sort = filters.sorter;
   }
 
-  filters.page = filters.page ? filters.page : 1;
-
   var index = 0;
   var url = that.apiURL[index] + 'animes/' + filters.page + '?' + querystring.stringify(params).replace(/%25%20/g, '%20');
   return get(index, url, that).then(formatFetch);
@@ -177,13 +181,6 @@ AnimeApi.prototype.detail = function (torrent_id, old_data, debug) {
   var index = 0;
   var url = that.apiURL[index] + "anime/" + torrent_id;
   return get(index, url, that).then(formatDetail);
-};
-
-AnimeApi.prototype.random = function () {
-	var that = this;
-	var index = 0;
-	var url = that.apiURL[index] + 'random/anime';
-	return get(index, url, that).then(formatDetail);
 };
 
 module.exports = AnimeApi;
